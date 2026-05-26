@@ -1,8 +1,11 @@
 import os
 import time
 from datetime import datetime
+from utils.ini_file_reader.config_reader import ConfigReader
 from utils.reporting.custom_reporter import DetailedTestReporter, SummaryReportGenerator
 from dotenv import load_dotenv
+from utils.excel_helper.excel_report_generator import ExcelReportGenerator
+from utils.constants.framework_constants import FrameworkConstants
 
 
 def pytest_sessionstart(session):
@@ -25,6 +28,33 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    try:
+
+        test_executions = (
+            DetailedTestReporter.get_test_executions()
+        )
+        flags = (
+            f"{ConfigReader.get_property('DateWiseReport')},"
+            f"{ConfigReader.get_property('ReleasewiseReport')},"
+            f"{ConfigReader.get_property('AccountWiseReport')}"
+        )
+        ExcelReportGenerator.write_test_executions_to_excel(
+            default_path=FrameworkConstants.ONEDRIVE_BASE_PATH,
+            sheet_names="Daily,Release,Account",
+            flags=flags,
+            releases=ConfigReader.get_property('ReleaseVersion'),
+            account_header=ConfigReader.get_property('UserName'),
+            module_name=ConfigReader.get_property('SuiteName'),
+            test_executions=test_executions
+        )
+
+        print("Excel report generated successfully.")
+
+    except Exception as e:
+
+        print(
+            f"Error while generating Excel report: {str(e)}"
+        )
     DetailedTestReporter.save_worker_state()
 
     worker_id = os.getenv("PYTEST_XDIST_WORKER")
