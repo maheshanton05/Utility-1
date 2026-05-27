@@ -341,7 +341,10 @@ class SummaryReportGenerator:
                 "module": exec_obj.module if exec_obj.module else "",
                 "scenarioId": exec_obj.scenario_id if exec_obj.scenario_id else "",
                 "testCaseId": exec_obj.test_case_id if exec_obj.test_case_id else "",
-                "description": exec_obj.short_description if exec_obj.short_description else "",
+                "description": (
+                    exec_obj.short_description.replace("_", " ").strip()
+                    if exec_obj.short_description else ""
+                ),
                 "status": exec_obj.status if exec_obj.status else "SKIPPED",
                 "startTime": start_time_str,
                 "endTime": end_time_str,
