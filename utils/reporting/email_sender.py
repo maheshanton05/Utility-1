@@ -1049,10 +1049,12 @@ class EmailSender:
 
         execution_report_link = ""
 
-        FilePath = "https://azureresulticks-my.sharepoint.com/my?id=%2Fpersonal%2Fqaautomation%5Fresulticks%5Fcom%2FDocuments%2FAutomation%2FResulticks%2FDailyCheckListResults&FolderCTID=0x012000BB23E8B091559D478C5E9FF3B7573B95";
-
-        if FilePath and FilePath.startswith("https://azureresulticks-my.sharepoint.com/"):
-            execution_report_link = f"<li>Execution report: <a href='{FilePath}' style='color: #007bff;'>[Report Link]</a></li>"
+        if "daily" in ConfigReader.get_property("SuiteName").lower():
+            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgD9QKIO4zuUQLf9Fq8ecCT5AbMtLEOO069oUwH5tJIh1Gs?e=8G1xau"
+        elif "post" in ConfigReader.get_property("SuiteName").lower():
+            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgBU4Mk9VkvZQ774UTB5Zy-AAVr5hxiGL2FLuEEdBpA0E5s?e=j8Ojoe"
+        else:
+            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgDhvIK9wDdITaaymyOnRwyJAbI13ZemizPMKee75rwCGcc?e=bcKydf"
 
         valid_fails = []
 
