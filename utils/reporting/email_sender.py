@@ -461,19 +461,19 @@ class EmailSender:
         #
         # cls.FilePath = new_file_path
         # cls.zipPath = new_file_path
-        #
-        # github_url = cls.publish_to_github_root(new_file_path)  # ✅ FIXED
-        # if github_url:
-        #     cls.FilePath = github_url
-        #     print("✅ GitHub Pages URL:", cls.FilePath)
-        #
-        # use_custom_name = os.getenv("AttachMailFile", "no").lower() == "yes"
-        #
-        # if use_custom_name:
-        #     for i in range(len(paths)):
-        #         cls.attach_file(msg, paths[i], names[i])  # ✅ FIXED
-        #
-        # print("📄 File stored in OneDrive path:", new_file_path)
+
+        github_url = cls.publish_to_github_root(ConfigReader.get_property("execution_report_path"))  # ✅ FIXED
+        if github_url:
+            cls.FilePath = github_url
+            print("✅ GitHub Pages URL:", cls.FilePath)
+
+        use_custom_name = os.getenv("AttachMailFile", "no").lower() == "yes"
+
+        if use_custom_name:
+            for i in range(len(paths)):
+                cls.attach_file(msg, paths[i], names[i])  # ✅ FIXED
+
+        print("✅ Report published to GitHub:", cls.FilePath)
 
     # -------------------------------
     # ATTACH FILE
@@ -557,7 +557,7 @@ class EmailSender:
 
         cls.ReportName = ConfigReader.get_property("SuiteName")
 
-        cls.set_date_time()  # ✅ FIXED
+        cls.set_date_time()
 
         Environment = ConfigReader.get_property("Environment")
         Project = ConfigReader.get_property("Project")
@@ -586,11 +586,11 @@ class EmailSender:
         cls.Browser = ConfigReader.get_property("Browser")
         cls.Env = Environment
 
-        cls.set_trigger_and_git_info()  # ✅ FIXED
-        cls.set_infra_and_os()  # ✅ FIXED
-        cls.set_due_date()  # ✅ FIXED
+        cls.set_trigger_and_git_info()
+        cls.set_infra_and_os()
+        cls.set_due_date()
 
-        # cls.calculate_top_failures(DetailedTestReporter.test_executions)  # ✅ FIXED
+        # cls.calculate_top_failures(DetailedTestReporter.test_executions)
 
     # -------------------------------
     # SET INFRA + OS
@@ -724,87 +724,104 @@ class EmailSender:
     def publish_to_github_root(cls, report_file_path):
         try:
             token = ConfigReader.get_property("GITHUB_TOKEN")
-
             if not token:
                 print("❌ GITHUB_TOKEN not set")
                 return None
 
             repo = "rsltkscomm/Automation-Report"
             pages_base_url = "https://rsltkscomm.github.io/Automation-Report/"
-            repo_dir = "C:/automation/github-pages/repo"
+            api_base = f"https://api.github.com/repos/{repo}/contents"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json"
+            }
 
-            repo_exists = os.path.exists(repo_dir) and os.path.exists(os.path.join(repo_dir, ".git"))
-
-            if not repo_exists:
-                print("First run: Cloning repository...")
-
-                if os.path.exists(repo_dir):
-                    cls.delete_directory(repo_dir)  # ✅ FIXED
-
-                clone_url = f"https://{token}@github.com/{repo}.git"
-                cls.run_git("C:/automation/github-pages", "clone", clone_url, "repo")  # ✅ FIXED
-
-                default_branch = cls.detect_default_branch(repo_dir)  # ✅ FIXED
-
-                if default_branch != "main":
-                    cls.run_git(repo_dir, "branch", "-m", default_branch, "main")
-                    cls.run_git(repo_dir, "push", "origin", "main")
-                    cls.run_git(repo_dir, "push", "origin", "--delete", default_branch)
-                    cls.run_git(repo_dir, "branch", "--set-upstream-to=origin/main", "main")
-
-            else:
-                print("Updating existing repository...")
-
-                cls.cleanup_git_locks(repo_dir)
-
-                try:
-                    cls.run_git(repo_dir, "checkout", "main")
-                except:
-                    try:
-                        cls.run_git(repo_dir, "fetch", "origin")
-                        cls.run_git(repo_dir, "checkout", "-b", "main", "origin/main")
-                    except Exception as ex:
-                        print("Could not switch to main:", ex)
-
-                try:
-                    cls.run_git(repo_dir, "fetch", "origin")
-                    cls.run_git(repo_dir, "reset", "--hard", "origin/main")
-                except Exception as e:
-                    print("Pull failed:", e)
-
-            # Git config
-            cls.run_git(repo_dir, "config", "user.name", "automation-bot")
-            cls.run_git(repo_dir, "config", "user.email", "automation@company.com")
-
-            # Copy report
             time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_name = f"report_{time_stamp}.html"
 
-            shutil.copy(report_file_path, os.path.join(repo_dir, report_name))
+            # ── 1. Upload the report HTML ──────────────────────────────────────
+            with open(report_file_path, "rb") as f:
+                report_content = base64.b64encode(f.read()).decode()
 
-            cls.update_index_html(repo_dir, report_name, time_stamp)
+            upload_url = f"{api_base}/{report_name}"
+            upload_body = {
+                "message": f"Add report {time_stamp}",
+                "content": report_content,
+                "branch": "main"
+            }
 
-            cls.run_git(repo_dir, "add", report_name)
-            cls.run_git(repo_dir, "add", "index.html")
+            r = requests.put(upload_url, json=upload_body, headers=headers, timeout=60)
 
-            status = subprocess.check_output(
-                ["git", "status", "--porcelain"],
-                cwd=repo_dir
-            ).decode()
+            if r.status_code not in (200, 201):
+                print(f"❌ Report upload failed: {r.status_code} - {r.text}")
+                return None
 
-            if status.strip():
-                cls.run_git(repo_dir, "commit", "-m", f"Add report {time_stamp}")
-                print("Pushing to GitHub...")
-                cls.run_git(repo_dir, "push", "origin", "main")
+            print(f"✅ Report uploaded: {report_name}")
+
+            # ── 2. Update index.html ───────────────────────────────────────────
+            index_url = f"{api_base}/index.html"
+            index_get = requests.get(index_url, headers=headers, timeout=30)
+
+            if index_get.status_code == 200:
+                # File exists — get current content and SHA (required for update)
+                existing = index_get.json()
+                index_sha = existing["sha"]
+                current_html = base64.b64decode(existing["content"]).decode("utf-8")
+
+                # Remove (Latest) from previous entry
+                current_html = current_html.replace(" (Latest)", "")
+
+                # Insert new entry after <ul>
+                new_link = f"  <li><a href='{report_name}' class='latest'>🚀 Report {time_stamp} (Latest)</a></li>\n"
+                current_html = current_html.replace("<ul>\n", f"<ul>\n{new_link}", 1)
+
+                index_body = {
+                    "message": f"Update index for {time_stamp}",
+                    "content": base64.b64encode(current_html.encode("utf-8")).decode(),
+                    "sha": index_sha,
+                    "branch": "main"
+                }
             else:
-                print("No changes to commit")
+                # index.html doesn't exist yet — create it fresh
+                new_link = f"  <li><a href='{report_name}' class='latest'>🚀 Report {time_stamp} (Latest)</a></li>\n"
+                fresh_html = (
+                    "<!DOCTYPE html>\n<html>\n<head><title>Automation Reports</title>\n"
+                    "<style>\n"
+                    "body { font-family: Arial; margin: 20px; }\n"
+                    "h1 { color: #333; }\n"
+                    "ul { list-style-type: none; padding: 0; }\n"
+                    "li { margin: 10px 0; }\n"
+                    "a { color: #0066cc; text-decoration: none; }\n"
+                    "a:hover { text-decoration: underline; }\n"
+                    ".latest { font-weight: bold; color: #28a745; }\n"
+                    "</style>\n</head>\n<body>\n"
+                    "<h1>Automation Test Reports</h1>\n"
+                    f"<ul>\n{new_link}</ul>\n"
+                    "</body>\n</html>\n"
+                )
+                index_body = {
+                    "message": f"Create index for {time_stamp}",
+                    "content": base64.b64encode(fresh_html.encode("utf-8")).decode(),
+                    "branch": "main"
+                }
 
-            cls.verify_github_pages_branch(repo, token)
+            index_put = requests.put(index_url, json=index_body, headers=headers, timeout=30)
 
-            return pages_base_url + report_name
+            if index_put.status_code in (200, 201):
+                print("✅ index.html updated")
+            else:
+                print(f"⚠️ index.html update failed: {index_put.status_code} - {index_put.text}")
 
+            github_url = pages_base_url + report_name
+            print(f"✅ GitHub Pages URL: {github_url}")
+            return github_url
+
+        except requests.Timeout:
+            print("❌ GitHub API request timed out")
+            return None
         except Exception as e:
-            print("GitHub publish failed:", e)
+            print(f"❌ GitHub publish failed: {e}")
             return None
 
     # -------------------------------
@@ -1004,10 +1021,34 @@ class EmailSender:
     @staticmethod
     def delete_directory(directory):
         try:
-            if os.path.exists(directory):
-                shutil.rmtree(directory, ignore_errors=True)
-        except Exception:
-            pass
+            if not os.path.exists(directory):
+                return
+
+            # Force chmod all files first
+            for root, dirs, files in os.walk(directory):
+                for f in files:
+                    try:
+                        os.chmod(os.path.join(root, f), 0o777)
+                    except Exception:
+                        pass
+                for d in dirs:
+                    try:
+                        os.chmod(os.path.join(root, d), 0o777)
+                    except Exception:
+                        pass
+
+            def force_remove(func, path, exc_info):
+                try:
+                    os.chmod(path, 0o777)
+                    func(path)
+                except Exception:
+                    pass
+
+            shutil.rmtree(directory, onerror=force_remove)
+            print(f"✅ Deleted directory: {directory}")
+
+        except Exception as e:
+            print(f"❌ Failed to delete directory {directory}: {e}")
 
     # -------------------------------
     # RUN GIT COMMAND
@@ -1023,21 +1064,29 @@ class EmailSender:
                 full_cmd,
                 cwd=dir_path,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,  # ← capture stderr separately
                 text=True
             )
 
-            output = ""
+            stdout, stderr = process.communicate(timeout=60)  # ← timeout prevents infinite hang
 
-            for line in process.stdout:
-                print("[GIT]", line.strip())
-                output += line
+            if stdout:
+                for line in stdout.splitlines():
+                    print("[GIT OUT]", line.strip())
 
-            process.wait()
+            if stderr:
+                for line in stderr.splitlines():
+                    print("[GIT ERR]", line.strip())
 
             if process.returncode != 0:
-                raise Exception(f"Git command failed: {' '.join(cmd)}\nOutput: {output}")
+                raise Exception(
+                    f"Git command failed: {' '.join(cmd)}\n"
+                    f"STDOUT: {stdout}\nSTDERR: {stderr}"
+                )
 
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise Exception(f"Git command timed out: {' '.join(cmd)}")
         except Exception as e:
             raise Exception(str(e))
 
@@ -1049,12 +1098,27 @@ class EmailSender:
 
         execution_report_link = ""
 
-        if "daily" in ConfigReader.get_property("SuiteName").lower():
-            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgD9QKIO4zuUQLf9Fq8ecCT5AbMtLEOO069oUwH5tJIh1Gs?e=8G1xau"
-        elif "post" in ConfigReader.get_property("SuiteName").lower():
-            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgBU4Mk9VkvZQ774UTB5Zy-AAVr5hxiGL2FLuEEdBpA0E5s?e=j8Ojoe"
-        else:
-            FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgDhvIK9wDdITaaymyOnRwyJAbI13ZemizPMKee75rwCGcc?e=bcKydf"
+        # Use GitHub Pages URL published during handle_report_attachments
+        FilePath = cls.FilePath or ""
+
+        # Fallback: if not yet set, publish now
+        if not FilePath:
+            report_path = ConfigReader.get_property("execution_report_path")
+            if report_path:
+                github_url = cls.publish_to_github_root(report_path)
+                if github_url:
+                    cls.FilePath = github_url
+                    FilePath = github_url
+
+        # Final fallback to Azure path if GitHub publishing failed
+        if not FilePath:
+            suite = ConfigReader.get_property("SuiteName").lower()
+            if "daily" in suite:
+                FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgD9QKIO4zuUQLf9Fq8ecCT5AbMtLEOO069oUwH5tJIh1Gs?e=8G1xau"
+            elif "post" in suite:
+                FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgBU4Mk9VkvZQ774UTB5Zy-AAVr5hxiGL2FLuEEdBpA0E5s?e=j8Ojoe"
+            else:
+                FilePath = "https://azureresulticks-my.sharepoint.com/:f:/g/personal/qaautomation_resulticks_com/IgDhvIK9wDdITaaymyOnRwyJAbI13ZemizPMKee75rwCGcc?e=bcKydf"
 
         valid_fails = []
 
