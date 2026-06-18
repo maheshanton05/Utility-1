@@ -45,12 +45,15 @@ def browser_instance(playwright,request):
             timeout=60000,
         )
     else:
+        # Respect HEADLESS env var — set HEADLESS=true in CI/Docker, false for local debugging
+        headless = os.getenv("HEADLESS", "false").lower() == "true"
+
         if browser_name in ["chrome", "chromium"]:
-            browser = playwright.chromium.launch(headless=False)
+            browser = playwright.chromium.launch(headless=headless)
         elif browser_name == "firefox":
-            browser = playwright.firefox.launch(headless=False)
+            browser = playwright.firefox.launch(headless=headless)
         elif browser_name == "webkit":
-            browser = playwright.webkit.launch(headless=False)
+            browser = playwright.webkit.launch(headless=headless)
         elif browser_name == "chromeheadless":
             browser = playwright.chromium.launch(headless=True)
         else:

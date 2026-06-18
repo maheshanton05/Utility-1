@@ -14,9 +14,10 @@ def healing_enabled() -> bool:
     if env is not None:
         return _truthy(env)
     try:
-        return _truthy(ConfigReader.get_property("selfhealing", "yes"))
+        # Default is "no" — healing must be explicitly opted in via config or env var
+        return _truthy(ConfigReader.get_property("selfhealing", "no"))
     except Exception:
-        return True
+        return False
 
 
 def ai_healing_enabled() -> bool:
@@ -24,9 +25,10 @@ def ai_healing_enabled() -> bool:
     if env is not None:
         return _truthy(env)
     try:
-        return _truthy(ConfigReader.get_property("aihealing", "yes"))
+        # Default is "no" — AI healing must be explicitly opted in via config or env var
+        return _truthy(ConfigReader.get_property("aihealing", "no"))
     except Exception:
-        return True
+        return False
 
 
 def ai_provider() -> str:
