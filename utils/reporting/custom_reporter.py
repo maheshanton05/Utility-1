@@ -555,7 +555,7 @@ class SummaryReportGenerator:
             html.append('<td class="expand-icon"><span class="chevron">&#9654;</span></td>')
             html.append(f'<td class="td-module">{escaped_module}</td>')
             html.append(f'<td class="td-tcid">{escaped_testCaseId}</td>')
-            html.append(f'<td class="td-desc"><span class="desc-chip">{escaped_desc_display}</span></td>')
+            html.append(f'<td class="td-desc"><span class="desc-chip" data-full-desc="{escaped_desc_display}">{escaped_desc_display}</span></td>')
 
             # Status column: badge, no link
             html.append(f'<td style="text-align:center;">{statusBadge}</td>')
@@ -917,6 +917,38 @@ body {{ font-family: 'Segoe UI', sans-serif; background:#f0f4fa; margin:0; color
 }}
 .td-date {{ font-size: 0.92em; color: #475569; font-weight: 500; white-space: nowrap; }}
 .td-dur {{ font-size: 0.91em; color: #64748b; white-space: nowrap; text-align: center; }}
+/* ===== Description chip tooltip ===== */
+.desc-chip {{ position: relative; cursor: default; }}
+.desc-tooltip {{
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    position: fixed;
+    z-index: 9999;
+    background: #1e293b;
+    color: #f1f5f9;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 8px 13px;
+    font-size: 0.87em;
+    font-weight: 500;
+    line-height: 1.5;
+    max-width: 360px;
+    white-space: normal;
+    word-break: break-word;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+    transition: opacity 0.15s ease;
+}}
+.desc-tooltip::after {{
+    content: '';
+    position: absolute;
+    bottom: -7px;
+    left: 18px;
+    border-width: 7px 7px 0 7px;
+    border-style: solid;
+    border-color: #1e293b transparent transparent transparent;
+    display: block;
+}}
 
 /* ===== Status Badges ===== */
 .badge {{
@@ -1259,6 +1291,57 @@ function populateModuleTable() {{
     }}, true);
 }})();
 
+/* ===== Floating tooltip for Description chips =====
+   Reads data-full-desc from .desc-chip spans and shows a fixed tooltip
+   so the full text is always visible even when truncated by -webkit-line-clamp. */
+(function() {{
+    var descTip = document.createElement('div');
+    descTip.className = 'desc-tooltip';
+    descTip.id = 'descTooltip';
+    document.body.appendChild(descTip);
+
+    function positionDescTip(target) {{
+        var rect = target.getBoundingClientRect();
+        var tipRect = descTip.getBoundingClientRect();
+        var margin = 8;
+        var left = rect.left;
+        var top = rect.top - tipRect.height - 10;
+        // Clamp horizontally
+        if (left + tipRect.width > window.innerWidth - margin)
+            left = window.innerWidth - tipRect.width - margin;
+        if (left < margin) left = margin;
+        // If not enough room above, show below
+        if (top < margin) top = rect.bottom + 10;
+        descTip.style.left = left + 'px';
+        descTip.style.top  = top  + 'px';
+    }}
+
+    document.addEventListener('mouseover', function(e) {{
+        var el = e.target;
+        if (!el || !el.classList || !el.classList.contains('desc-chip')) return;
+        var text = el.getAttribute('data-full-desc');
+        if (!text) return;
+        descTip.textContent = text;
+        descTip.style.left = '-9999px';
+        descTip.style.top  = '-9999px';
+        descTip.style.visibility = 'visible';
+        descTip.style.opacity = '1';
+        requestAnimationFrame(function() {{ positionDescTip(el); }});
+    }});
+
+    document.addEventListener('mouseout', function(e) {{
+        var el = e.target;
+        if (!el || !el.classList || !el.classList.contains('desc-chip')) return;
+        descTip.style.visibility = 'hidden';
+        descTip.style.opacity = '0';
+    }});
+
+    window.addEventListener('scroll', function() {{
+        descTip.style.visibility = 'hidden';
+        descTip.style.opacity = '0';
+    }}, true);
+}})();
+
 /* ===== Lightbox (screenshot + video) ===== */
 document.addEventListener('click', function(e) {{
     if (e.target.classList.contains('screenshot')) {{
@@ -1300,43 +1383,94 @@ document.addEventListener('click', function(e) {{
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             html_path = os.path.join("reports", f"report_{timestamp}.html")
             Env = ConfigReader.get_property("Environment")
-            daily_checklist_html_path = FrameworkConstants.get_daily_checklist_result_path() / f"daily_checklist_{Env}_{timestamp}.html"
-            deploy_checklist_html_path = FrameworkConstants.get_deploy_checklist_result_path() / f"deploy_checklist_{Env}_{timestamp}.html"
-            regression_checklist_html_path = FrameworkConstants.get_regression_checklist_result_path() / f"{ConfigReader.get_property('SuiteName')}_{Env}_{timestamp}.html"
 
             if "resul" in ConfigReader.get_property("Project").lower():
                 report_name = "RESUL"
+                daily_checklist_html_path = FrameworkConstants.get_daily_checklist_result_path() / f"daily_checklist_{Env}_{timestamp}.html"
+                deploy_checklist_html_path = FrameworkConstants.get_deploy_checklist_result_path() / f"deploy_checklist_{Env}_{timestamp}.html"
+                regression_checklist_html_path = FrameworkConstants.get_regression_checklist_result_path() / f"{ConfigReader.get_property('SuiteName')}_{Env}_{timestamp}.html"
+
             elif "star" in ConfigReader.get_property("Project").lower():
                 report_name = "Marketing Star"
+                daily_checklist_html_path = FrameworkConstants.get_MK_daily_checklist_result_path()/ f"daily_checklist_{Env}_{timestamp}.html"
+                deploy_checklist_html_path = FrameworkConstants.get_MK_deploy_checklist_result_path() / f"deploy_checklist_{Env}_{timestamp}.html"
+                regression_checklist_html_path = FrameworkConstants.get_MK_regression_checklist_result_path() / f"{ConfigReader.get_property('SuiteName')}_{Env}_{timestamp}.html"
 
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(html_str)
 
             subject_line_timestamp = datetime.now().strftime("%d %B %Y")
             suite_name = ConfigReader.get_property("SuiteName").lower()
+            if "resul" in ConfigReader.get_property("Project").lower():
 
-            if "daily" in ConfigReader.get_property("SuiteName").lower():
-                os.makedirs(FrameworkConstants.get_daily_checklist_result_path(), exist_ok=True)
-                with open(daily_checklist_html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_str)
-                print(f"\n[INFO] Generated Daily Checklist HTML at: {daily_checklist_html_path}")
-                ConfigReader.set_runtime_property("execution_report_path", daily_checklist_html_path)
-                subject_line = f"{report_name} - Daily Checklist Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}."
-            elif "post" in ConfigReader.get_property("SuiteName").lower():
-                os.makedirs(FrameworkConstants.get_deploy_checklist_result_path(), exist_ok=True)
-                with open(deploy_checklist_html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_str)
-                print(f"\n[INFO] Generated Deployment Checklist HTML at: {deploy_checklist_html_path}")
-                subject_line = f"{report_name} - Deployment Checklist Execution completed in the {Env.upper()} Env on {subject_line_timestamp}."
-                ConfigReader.set_runtime_property("execution_report_path", deploy_checklist_html_path)
-            else:
-                os.makedirs(FrameworkConstants.get_regression_checklist_result_path(), exist_ok=True)
-                with open(regression_checklist_html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_str)
-                print(f"\n[INFO] Generated Regression Checklist HTML at: {regression_checklist_html_path}")
-                subject_line = f"{report_name} - {ConfigReader.get_property("SuiteName")} Regression Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}."
-                ConfigReader.set_runtime_property("execution_report_path", regression_checklist_html_path)
+                if "daily" in ConfigReader.get_property("SuiteName").lower():
+                    os.makedirs(FrameworkConstants.get_daily_checklist_result_path(), exist_ok=True)
 
+                    with open(daily_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Daily Checklist HTML at: {daily_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", daily_checklist_html_path)
+
+                    subject_line = f"{report_name} - Daily Checklist Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}."
+
+                elif "post" in ConfigReader.get_property("SuiteName").lower():
+                    os.makedirs(FrameworkConstants.get_deploy_checklist_result_path(), exist_ok=True)
+
+                    with open(deploy_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Deployment Checklist HTML at: {deploy_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", deploy_checklist_html_path)
+
+                    subject_line = f"{report_name} - Deployment Checklist Execution completed in the {Env.upper()} Env on {subject_line_timestamp}."
+
+                else:
+                    os.makedirs(FrameworkConstants.get_regression_checklist_result_path(), exist_ok=True)
+
+                    with open(regression_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Regression Checklist HTML at: {regression_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", regression_checklist_html_path)
+
+                    subject_line = f'{report_name} - {ConfigReader.get_property("SuiteName")} Regression Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}.'
+
+
+            elif "star" in ConfigReader.get_property("Project").lower():
+
+                if "daily" in ConfigReader.get_property("SuiteName").lower():
+                    os.makedirs(FrameworkConstants.get_MK_daily_checklist_result_path(), exist_ok=True)
+
+                    with open(daily_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Daily Checklist HTML at: {daily_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", daily_checklist_html_path)
+
+                    subject_line = f"{report_name} - Daily Checklist Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}."
+
+                elif "post" in ConfigReader.get_property("SuiteName").lower():
+                    os.makedirs(FrameworkConstants.get_MK_deploy_checklist_result_path(), exist_ok=True)
+
+                    with open(deploy_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Deployment Checklist HTML at: {deploy_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", deploy_checklist_html_path)
+
+                    subject_line = f"{report_name} - Deployment Checklist Execution completed in the {Env.upper()} Env on {subject_line_timestamp}."
+
+                else:
+                    os.makedirs(FrameworkConstants.get_MK_regression_checklist_result_path(), exist_ok=True)
+
+                    with open(regression_checklist_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_str)
+
+                    print(f"\n[INFO] Generated Regression Checklist HTML at: {regression_checklist_html_path}")
+                    ConfigReader.set_runtime_property("execution_report_path", regression_checklist_html_path)
+
+                    subject_line = f'{report_name} - {ConfigReader.get_property("SuiteName")} Regression Execution Completed in the {Env.upper()} Env on {subject_line_timestamp}.'
             if "yes" in ConfigReader.get_property("isReportSend").lower():
                 ConfigReader.set_runtime_property("subject", subject_line)
                 if "daily" in suite_name:
