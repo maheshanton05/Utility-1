@@ -1109,4 +1109,23 @@ class PlaywrightActions(WebActions):
 
         print(msg) if not logger else logger.info(msg)
 
+    def select_frame_text_email(self, locator):
+        try:
+            self.click_tab()
+            frame = self.current_frame
+
+            # if frame is None:
+            #     return False
+
+            element = frame.locator(locator)
+
+            element.click()  # focus first
+            element.press("Control+A")
+            return True
+
+        except Exception as e:
+            print(f"Unable to select text in frame: {e}")
+            return False
+
+
 
