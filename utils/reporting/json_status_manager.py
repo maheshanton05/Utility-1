@@ -1,80 +1,3 @@
-"""
-json_status_manager.py
-Place this file at:  utils/reporting/json_status_manager.py
-
-Storage layout  (under  FrameworkConstants.ONEDRIVE_BASE_PATH / "execution_history"):
-
-    execution_history/
-        Resul/
-            daily_Team.json
-            daily_Run19.json
-            daily_Run.json
-            deployment_Run19.json     ← predeploy (any env) / deploy+postdeploy+post on Run19
-            production_Run.json       ← deploy+postdeploy+post on Run / production(any env)
-            regression_Team.json
-            regression_Run19.json
-            regression_Run.json
-            ...
-        MarketingStar/
-            (same structure)
-
-Project key normalisation (case-insensitive, from "Project" config property):
-  "resul" in project   →  "Resul"
-  "star"  in project   →  "MarketingStar"
-  anything else        →  raw value stripped  (safe fallback)
-
-Suite + Env combined logic
-──────────────────────────
-Rule 1 – "daily" anywhere in SuiteName
-    → always "daily", env used as-is
-    → daily_Run19.json / daily_Run.json / daily_Team.json
-
-Rule 2 – "predeploy" anywhere in SuiteName
-    → ALWAYS deployment_Run19.json  (pre-deploy is always a Run19/pre-prod gate)
-    → env key is forced to "Run19" regardless of what the config says
-
-Rule 3 – "deploy" OR "postdeploy" OR "post" anywhere in SuiteName
-    (but NOT "predeploy" — that is already caught by Rule 2)
-    → env decides the file:
-        env = Run19  →  deployment_Run19.json
-        env = Run    →  production_Run.json
-        env = Team   →  deployment_Run19.json  (pre-prod default)
-
-Rule 4 – "production" OR "prod" anywhere in SuiteName
-    → ALWAYS production_Run.json  (production suite only ever targets the live env)
-    → env key is forced to "Run" regardless of what the config says
-
-Rule 5 – anything else (regression / module / communication suites)
-    → always "regression", env used as-is
-    → regression_Run19.json / regression_Run.json / regression_Team.json
-
-Env key normalisation (case-insensitive, "run19" checked BEFORE "run"):
-  "run19" in env  →  "Run19"
-  "run"   in env  →  "Run"
-  "team"  in env  →  "Team"
-  other           →  raw value stripped
-
-Complete file-name truth table  (inside the project sub-folder):
-  SuiteName          Env      →  file
-  ──────────────────────────────────────────────────────────────────────
-  predeploy          Run19    →  deployment_Run19.json  ← forced (Rule 2)
-  predeploy          Run      →  deployment_Run19.json  ← forced (Rule 2)
-  predeploy          Team     →  deployment_Run19.json  ← forced (Rule 2)
-  deployment         Run19    →  deployment_Run19.json
-  postdeploy         Run19    →  deployment_Run19.json
-  post               Run19    →  deployment_Run19.json
-  deployment         Run      →  production_Run.json
-  postdeploy         Run      →  production_Run.json
-  post               Run      →  production_Run.json
-  production         Run      →  production_Run.json
-  production         Run19    →  production_Run.json   ← forced to Run (Rule 4)
-  prod               Run19    →  production_Run.json   ← forced to Run (Rule 4)
-  daily              Run19    →  daily_Run19.json
-  daily              Run      →  daily_Run.json
-  communication      Run19    →  regression_Run19.json
-  communication      Run      →  regression_Run.json
-"""
-
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -107,19 +30,27 @@ def _get_project_key() -> str:
 
 def _get_env_key() -> str:
     """
-    Normalise the Environment config value.
-    "run19" is checked BEFORE "run" so Run19 is never misidentified as Run.
+    Normalise the Environment config value into a canonical env key.
+
+    Longer tokens (run24, run23, run19) are checked BEFORE the shorter
+    "run" so that e.g. "Run19" is never misidentified as plain "Run".
 
     Environment (case-insensitive)   →  env key
     ────────────────────────────────────────────
+    contains "run24"                 →  "Run24"
+    contains "run23"                 →  "Run23"
     contains "run19"                 →  "Run19"
-    contains "run" (not "run19")     →  "Run"
+    contains "run"  (not above)      →  "Run"
     contains "team"                  →  "Team"
     anything else                    →  raw value, stripped
     """
     raw   = ConfigReader.get_property("Environment", "unknown").strip()
     lower = raw.lower()
 
+    if "run24" in lower:
+        return "Run24"
+    if "run23" in lower:
+        return "Run23"
     if "run19" in lower:
         return "Run19"
     if "run" in lower:
@@ -131,8 +62,8 @@ def _get_env_key() -> str:
 
 def _get_suite_and_env_keys(env_key: str) -> tuple[str, str]:
     """
-    Derive (suite_key, effective_env_key) using SuiteName + the already-resolved
-    env_key.  env_key may be overridden (forced) for predeploy and production suites.
+    Derive (suite_key, effective_env_key) from SuiteName + the already-resolved
+    env_key.  env_key is only overridden (forced) for predeploy and production.
 
     Rules (evaluated in order):
     ─────────────────────────────────────────────────────────────────────────────
@@ -141,22 +72,30 @@ def _get_suite_and_env_keys(env_key: str) -> tuple[str, str]:
             → file: daily_<env>.json
 
     Rule 2  "predeploy" in SuiteName
-            → ALWAYS deployment_Run19.json  (pre-deploy is always a pre-prod/Run19 gate)
+            → ALWAYS deployment_Run19.json  (pre-deploy is always the Run19 gate)
             → suite_key = "deployment",  env_key FORCED to "Run19"
-            (checked BEFORE Rule 3 so "predeploy" is never caught by the "deploy" branch)
+            (checked BEFORE Rule 3 so "predeploy" is never caught by "post")
 
-    Rule 3  "deploy" OR "post" in SuiteName  (catches postdeploy, deployment, post)
-            → env decides:
-                Run19  →  suite_key = "deployment",  env_key = "Run19"
-                Run    →  suite_key = "production",   env_key = "Run"
-                other  →  suite_key = "deployment",   env_key = "Run19"  (pre-prod default)
+    Rule 3  "post" in SuiteName
+            (covers "post", "postdeploy"; "predeploy" already handled by Rule 2)
+            → suite_key = "deployment",  env_key UNCHANGED
+            → file: deployment_<env>.json  for ALL environments
+                post + Run    →  deployment_Run.json
+                post + Run19  →  deployment_Run19.json
+                post + Run23  →  deployment_Run23.json
+                post + Run24  →  deployment_Run24.json
+                post + Team   →  deployment_Team.json
 
-    Rule 4  "production" or "prod" in SuiteName
-            → ALWAYS production_Run.json  (production suite always targets live/Run env)
+    Rule 4  "deploy" in SuiteName
+            (covers "deploy", "deployment"; "predeploy"/"postdeploy" already handled)
+            → suite_key = "deployment",  env_key UNCHANGED
+            → file: deployment_<env>.json  for ALL environments
+
+    Rule 5  "production" or "prod" in SuiteName
+            → ALWAYS production_Run.json
             → suite_key = "production",  env_key FORCED to "Run"
-            (must come AFTER Rule 3; "prod" is not a substring of "postdeploy" so safe)
 
-    Rule 5  anything else  (regression / module / communication / …)
+    Rule 6  anything else  (regression / module / communication / …)
             → suite_key = "regression",  env_key unchanged
             → file: regression_<env>.json
     ─────────────────────────────────────────────────────────────────────────────
@@ -174,17 +113,21 @@ def _get_suite_and_env_keys(env_key: str) -> tuple[str, str]:
     if "predeploy" in suite_name:
         return "deployment", "Run19"
 
-    # Rule 3 – deploy / postdeploy / post  (env decides)
-    if "deploy" in suite_name or "post" in suite_name:
-        if env_key == "Run":
-            return "production", "Run"
-        return "deployment", "Run19"   # Run19 or Team → pre-prod gate
+    # Rule 3 – post / postdeploy → deployment_<env>, env unchanged for ALL envs
+    # "predeploy" already caught above so only true post/postdeploy reach here.
+    if "post" in suite_name:
+        return "deployment", env_key
 
-    # Rule 4 – production / prod → ALWAYS production_Run, env forced
+    # Rule 4 – deploy / deployment → deployment_<env>, env unchanged for ALL envs
+    # "predeploy" / "postdeploy" already caught above so only pure deploy reaches here.
+    if "deploy" in suite_name:
+        return "deployment", env_key
+
+    # Rule 5 – production / prod → ALWAYS production_Run, env forced
     if "production" in suite_name or "prod" in suite_name:
         return "production", "Run"
 
-    # Rule 5 – everything else
+    # Rule 6 – everything else (regression / module / communication / …)
     return "regression", env_key
 
 
@@ -260,6 +203,9 @@ class JSONStatusManager:
                 <suite_key>_<env_key>.json
             MarketingStar/
                 <suite_key>_<env_key>.json
+
+    Supported suite keys : daily, deployment, production, regression
+    Supported env keys   : Run, Run19, Run23, Run24, Team
 
     Entry points:
       save_current_run(test_executions)   →  write today's results
